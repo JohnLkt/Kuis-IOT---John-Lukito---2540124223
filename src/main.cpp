@@ -51,13 +51,13 @@ void WifiConnect()
 
 // MQTT
 
-void onPublishMessage()
-{
-  char szMsg[50];
-  static int nMsgCount=0;
-  sprintf(szMsg, "%d, Temp: %.2f, Hum: %.2f, Lux: %.2f", nMsgCount++, globalTemp, globalHum, globalLux);
-  mqtt.publish(MQTT_TOPIC_PUBLISH, szMsg);
-}
+// void onPublishMessage()
+// {
+//   char szMsg[50];
+//   static int nMsgCount=0;
+//   sprintf(szMsg, "%d, Temp: %.2f, Hum: %.2f, Lux: %.2f", nMsgCount++, globalTemp, globalHum, globalLux);
+//   mqtt.publish(MQTT_TOPIC_PUBLISH, szMsg);
+// }
 
 void mqttCallback(char* topic, byte* payload, unsigned int len) {
   Serial.print("Message arrived [");
@@ -89,23 +89,41 @@ boolean mqttConnect() {
     Serial.println(" success");
     mqtt.subscribe(MQTT_TOPIC_SUBSCRIBE);
     Serial.printf("Subcribe topic: %s\n", MQTT_TOPIC_SUBSCRIBE);
-    onPublishMessage();
+    // onPublishMessage();
   }
   return mqtt.connected();
 }
 
 // else
 
-void taskDHT (void *pvParameters) {
+void taskDT (void *pvParameters) {
   for(;;) {
-    float humidity = dht.getHumidity();
     float temperature = dht.getTemperature();
     if (dht.getStatus() == DHTesp::ERROR_NONE) {
       // Serial.printf("Temperature: %.2f C, Humidity: %.2f%%\n", temperature, humidity);
       globalTemp = temperature;
-      globalHum = humidity;
+      
+      char szMsg[50];
+      static int nMsgCount=0;
+      sprintf(szMsg, "%d, Temp: %.2f", nMsgCount++, globalTemp);
+      mqtt.publish(MQTT_TOPIC_PUBLISH, szMsg);
     }
-    vTaskDelay(pollrate/portTICK_PERIOD_MS);
+    vTaskDelay(5000/portTICK_PERIOD_MS);
+  }
+}
+
+void taskDH (void *pvParameters) {
+  for(;;) {
+    float humidity = dht.getHumidity();
+    if (dht.getStatus() == DHTesp::ERROR_NONE) {
+      globalHum = humidity;
+
+      char szMsg[50];
+      static int nMsgCount=0;
+      sprintf(szMsg, "%d, Hum: %.2f", nMsgCount++, globalHum);
+      mqtt.publish(MQTT_TOPIC_PUBLISH, szMsg);
+    }
+    vTaskDelay(6000/portTICK_PERIOD_MS);
   }
 }
 
@@ -114,7 +132,12 @@ void taskBH (void *pvParameters) {
     float lux = bh.readLightLevel();
     // Serial.printf("Light level: %2f Lux \n", lux);
     globalLux = lux;
-    vTaskDelay(pollrate/portTICK_PERIOD_MS);
+    vTaskDelay(3000/portTICK_PERIOD_MS);
+
+    char szMsg[50];
+    static int nMsgCount=0;
+    sprintf(szMsg, "%d, Lux: %.2f", nMsgCount++, globalLux);
+    mqtt.publish(MQTT_TOPIC_PUBLISH, szMsg);
   }
 }
 
@@ -147,13 +170,6 @@ void checkLogic (void *pvParameters) {
   }
 }
 
-void publishMQTT (void*pvParameters) {
-  for(;;) {
-    onPublishMessage();
-    vTaskDelay(pollrate/portTICK_PERIOD_MS);
-  }
-}
-
 void setup() {
   // put your setup code here, to run once:
 
@@ -167,15 +183,14 @@ void setup() {
   Wire.begin(PIN_SDA, PIN_SCL);
   bh.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, 0x23, &Wire);
 
-  xTaskCreatePinnedToCore(taskDHT, "taskDHT", configMINIMAL_STACK_SIZE+2048, NULL, 1, NULL, 0);
-  xTaskCreatePinnedToCore(taskBH, "taskBH", configMINIMAL_STACK_SIZE+2048, NULL, 2, NULL, 0);
-  xTaskCreatePinnedToCore(checkLogic, "checkLogic", configMINIMAL_STACK_SIZE+2048, NULL, 3, NULL, 0);
-
   // networking
   WifiConnect();
   mqttConnect();
 
-  xTaskCreatePinnedToCore(publishMQTT, "publishMQTT", configMINIMAL_STACK_SIZE+2048, NULL, 4, NULL, 0);
+  xTaskCreatePinnedToCore(taskDH, "taskDH", configMINIMAL_STACK_SIZE+2048, NULL, 1, NULL, 0);
+  xTaskCreatePinnedToCore(taskDT, "taskDT", configMINIMAL_STACK_SIZE+2048, NULL, 2, NULL, 0);
+  xTaskCreatePinnedToCore(taskBH, "taskBH", configMINIMAL_STACK_SIZE+2048, NULL, 3, NULL, 0);
+  xTaskCreatePinnedToCore(checkLogic, "checkLogic", configMINIMAL_STACK_SIZE+2048, NULL, 4, NULL, 0);
 
   Serial.println("Setup Complete! ");
 }
